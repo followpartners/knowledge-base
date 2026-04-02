@@ -78,12 +78,13 @@ def _grafo_para_json(user_id: str = None) -> dict:
             e = record["e"]
             a = record["a"]
             c = record["c"]
+            print(f"[debug] record: e={dict(e)} a={dict(a) if a else None}")
 
             if e and e["id"] not in ids_vistos:
                 nos.append({
                     "id":     e["id"],
                     "tipo":   "empresa",
-                    "nome":   e.get("nome", e["id"]),
+                    "nome":   e.get("nome_principal", e.get("nome", e["id"])),
                     "setor":  e.get("setor", ""),
                     "status": e.get("status", "ativa"),
                     "grupo":  1,
