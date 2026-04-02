@@ -266,6 +266,11 @@ function renderGrafo(grafo) {
     .text(d => d.tipo !== 'contexto'
       ? (d.nome.length > 16 ? d.nome.slice(0,16)+'…' : d.nome) : '');
 
+  nos.forEach(function(n, i) {
+    if(!n.x) n.x = W/2 + (Math.random()-0.5) * 300;
+    if(!n.y) n.y = H/2 + (Math.random()-0.5) * 300;
+  });
+
   simulation.nodes(nos).on('tick', () => {
     link
       .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
