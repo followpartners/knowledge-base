@@ -50,79 +50,87 @@ def get_driver():
 def _grafo_para_json(user_id: str = None) -> dict:
     """
     Lê o grafo do Neo4j e retorna JSON de nós e arestas.
-    Se user_id for None, retorna todos os usuários.
+    Busca cada tipo de nó separadamente e constrói arestas
+    via propriedade empresa_id (não depende de relacionamentos).
     """
-    if user_id:
-        query = """
-        MATCH (e:Empresa {user_id: $user_id})
-        OPTIONAL MATCH (e)-[:TEM_ARQUIVO]->(a:Arquivo)
-        OPTIONAL MATCH (a)-[:GERA_CONTEXTO]->(c:Contexto)
-        RETURN e, a, c
-        """
-        params = {"user_id": user_id}
-    else:
-        query = """
-        MATCH (e:Empresa)
-        OPTIONAL MATCH (e)-[:TEM_ARQUIVO]->(a:Arquivo)
-        OPTIONAL MATCH (a)-[:GERA_CONTEXTO]->(c:Contexto)
-        RETURN e, a, c
-        """
-        params = {}
+    filtro_empresa = "{user_id: $user_id}" if user_id else ""
+    params = {"user_id": user_id} if user_id else {}
 
     nos, arestas = [], []
-    ids_vistos = set()
+    empresas_idx = {}
+    arquivos_idx = {}
 
     with get_driver().session() as session:
-        result = session.run(query, **params)
-        for record in result:
-            e = record["e"]
-            a = record["a"]
-            c = record["c"]
-            print(f"[debug] record: e={dict(e)} a={dict(a) if a else None}")
+        # ── Empresas ───────────────────────────────────────────
+        for rec in session.run(
+            f"MATCH (e:Empresa {filtro_empresa}) RETURN e", **params
+        ):
+            e = rec["e"]
+            eid = e["id"]
+            empresas_idx[eid] = True
+            nos.append({
+                "id":     eid,
+                "tipo":   "empresa",
+                "nome":   e.get("nome_principal", e.get("nome", eid)),
+                "setor":  e.get("setor", ""),
+                "status": e.get("status", "ativa"),
+                "grupo":  1,
+            })
 
-            if e and e["id"] not in ids_vistos:
-                nos.append({
-                    "id":     e["id"],
-                    "tipo":   "empresa",
-                    "nome":   e.get("nome_principal", e.get("nome", e["id"])),
-                    "setor":  e.get("setor", ""),
-                    "status": e.get("status", "ativa"),
-                    "grupo":  1,
+        # ── Arquivos ───────────────────────────────────────────
+        q_arq = (
+            "MATCH (a:Arquivo {empresa_id: $user_id}) RETURN a"
+            if user_id else "MATCH (a:Arquivo) RETURN a"
+        )
+        for rec in session.run(q_arq, **params):
+            a = rec["a"]
+            aid = a["id"]
+            emp = a.get("empresa_id", "")
+            arquivos_idx[aid] = emp
+            nos.append({
+                "id":         aid,
+                "tipo":       "arquivo",
+                "nome":       a.get("nome", aid),
+                "empresa_id": emp,
+                "grupo":      2,
+            })
+            if emp in empresas_idx:
+                arestas.append({
+                    "origem":  emp,
+                    "destino": aid,
+                    "tipo":    "TEM_ARQUIVO",
                 })
-                ids_vistos.add(e["id"])
 
-            if a and a["id"] not in ids_vistos:
-                nos.append({
-                    "id":         a["id"],
-                    "tipo":       "arquivo",
-                    "nome":       a.get("nome", a["id"]),
-                    "empresa_id": a.get("empresa_id", ""),
-                    "grupo":      2,
+        # ── Contextos ──────────────────────────────────────────
+        q_ctx = (
+            "MATCH (c:Contexto {empresa_id: $user_id}) RETURN c"
+            if user_id else "MATCH (c:Contexto) RETURN c"
+        )
+        for rec in session.run(q_ctx, **params):
+            c = rec["c"]
+            cid = c["id"]
+            emp = c.get("empresa_id", "")
+            arq = c.get("arquivo_id", "")
+            nos.append({
+                "id":         cid,
+                "tipo":       "contexto",
+                "nome":       "Contexto",
+                "resumo":     c.get("texto", "")[:120],
+                "empresa_id": emp,
+                "grupo":      3,
+            })
+            if arq and arq in arquivos_idx:
+                arestas.append({
+                    "origem":  arq,
+                    "destino": cid,
+                    "tipo":    "GERA_CONTEXTO",
                 })
-                ids_vistos.add(a["id"])
-                if e:
-                    arestas.append({
-                        "origem":  e["id"],
-                        "destino": a["id"],
-                        "tipo":    "TEM_ARQUIVO",
-                    })
-
-            if c and c["id"] not in ids_vistos:
-                nos.append({
-                    "id":         c["id"],
-                    "tipo":       "contexto",
-                    "nome":       "Contexto",
-                    "resumo":     c.get("texto", "")[:120],
-                    "empresa_id": c.get("empresa_id", ""),
-                    "grupo":      3,
+            elif emp in empresas_idx:
+                arestas.append({
+                    "origem":  emp,
+                    "destino": cid,
+                    "tipo":    "GERA_CONTEXTO",
                 })
-                ids_vistos.add(c["id"])
-                if a:
-                    arestas.append({
-                        "origem":  a["id"],
-                        "destino": c["id"],
-                        "tipo":    "GERA_CONTEXTO",
-                    })
 
     return {"nos": nos, "arestas": arestas}
 
