@@ -211,12 +211,71 @@ function initGrafo() {
     .attr('viewBox', '0 0 ' + W + ' ' + H)
     .attr('width', W).attr('height', H)
     .call(d3.zoom().scaleExtent([0.2,4])
-      .on('zoom', e => g.attr('transform', e.transform)));
+      .on('zoom', function(e) { g.attr('transform', e.transform); }));
 
   g = svg.append('g');
+}
 
-  simulation = d3.forceSimulation()
-    .force('link', d3.forceLink().id(d => d.id)
+function renderGrafo(grafo) {
+  grafoAtual = grafo;
+  var nos    = grafo.nos    || [];
+  var arestas = grafo.arestas || [];
+
+  // Map origem/destino → source/target (D3 requires source/target)
+  var links = arestas.map(function(a) {
+    return { source: a.origem, target: a.destino, tipo: a.tipo };
+  });
+
+  var wrap = document.getElementById('grafo-wrap');
+  var W = wrap.clientWidth, H = wrap.clientHeight;
+
+  // Assign initial positions in a circle
+  nos.forEach(function(n, i) {
+    var angle = (i / nos.length) * 2 * Math.PI;
+    var radius = 150 + Math.random() * 100;
+    n.x = W/2 + Math.cos(angle) * radius;
+    n.y = H/2 + Math.sin(angle) * radius;
+  });
+
+  g.selectAll('*').remove();
+
+  link = g.append('g').selectAll('line')
+    .data(links).enter().append('line')
+    .attr('class', function(d) { return 'link ' + d.tipo; });
+
+  node = g.append('g').selectAll('.node')
+    .data(nos).enter().append('g')
+    .attr('class','node')
+    .call(d3.drag()
+      .on('start', function(e,d) {
+        if(!e.active) simulation.alphaTarget(0.3).restart();
+        d.fx=d.x; d.fy=d.y;
+      })
+      .on('drag', function(e,d) { d.fx=e.x; d.fy=e.y; })
+      .on('end', function(e,d) {
+        if(!e.active) simulation.alphaTarget(0);
+        d.fx=null; d.fy=null;
+      }))
+    .on('click', mostrarDetalhe);
+
+  node.append('circle')
+    .attr('r', function(d) { return RAIOS[d.tipo]; })
+    .attr('fill', function(d) { return CORES[d.tipo]; });
+
+  node.append('text')
+    .attr('dy', function(d) { return RAIOS[d.tipo] + 13; })
+    .attr('text-anchor','middle')
+    .text(function(d) {
+      if(d.tipo === 'contexto') return '';
+      return d.nome.length > 16 ? d.nome.slice(0,16)+'…' : d.nome;
+    });
+
+  // Kill previous simulation
+  if(simulation) simulation.stop();
+
+  // Create fresh simulation each render
+  simulation = d3.forceSimulation(nos)
+    .force('link', d3.forceLink(links).id(function(d) { return d.id; })
       .distance(function(d) {
         return d.tipo === 'TEM_ARQUIVO' ? 120 : 60;
       })
@@ -227,75 +286,27 @@ function initGrafo() {
         if(d.tipo === 'arquivo') return -300;
         return -100;
       }))
+    .force('center', d3.forceCenter(W/2, H/2))
     .force('collision', d3.forceCollide()
       .radius(function(d) { return RAIOS[d.tipo] + 20; })
       .strength(1))
     .alphaDecay(0.02)
-    .velocityDecay(0.3);
-}
-
-function renderGrafo(grafo) {
-  grafoAtual = grafo;
-  var nos    = grafo.nos    || [];
-  var arestas = grafo.arestas || [];
-
-  var wrap = document.getElementById('grafo-wrap');
-  var W = wrap.clientWidth, H = wrap.clientHeight;
-
-  simulation.force('center', d3.forceCenter(W/2, H/2));
-
-  g.selectAll('*').remove();
-
-  link = g.append('g').selectAll('line')
-    .data(arestas).enter().append('line')
-    .attr('class', d => 'link ' + d.tipo);
-
-  node = g.append('g').selectAll('.node')
-    .data(nos).enter().append('g')
-    .attr('class','node')
-    .call(d3.drag()
-      .on('start', (e,d) => {
-        if(!e.active) simulation.alphaTarget(0.3).restart();
-        d.fx=d.x; d.fy=d.y;
-      })
-      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
-      .on('end',   (e,d) => {
-        if(!e.active) simulation.alphaTarget(0);
-        d.fx=null; d.fy=null;
-      }))
-    .on('click', mostrarDetalhe);
-
-  node.append('circle')
-    .attr('r', d => RAIOS[d.tipo])
-    .attr('fill', d => CORES[d.tipo]);
-
-  node.append('text')
-    .attr('dy', d => RAIOS[d.tipo] + 13)
-    .attr('text-anchor','middle')
-    .text(d => d.tipo !== 'contexto'
-      ? (d.nome.length > 16 ? d.nome.slice(0,16)+'…' : d.nome) : '');
-
-  nos.forEach(function(n, i) {
-    var angle = (i / nos.length) * 2 * Math.PI;
-    var radius = 150 + Math.random() * 150;
-    if(!n.x) n.x = W/2 + Math.cos(angle) * radius;
-    if(!n.y) n.y = H/2 + Math.sin(angle) * radius;
-  });
-
-  simulation.nodes(nos).on('tick', () => {
-    link
-      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-    node.attr('transform', d => 'translate('+d.x+','+d.y+')');
-  });
-
-  simulation.force('link').links(arestas);
-  simulation.alpha(0.8).restart();
+    .velocityDecay(0.3)
+    .on('tick', function() {
+      link
+        .attr('x1', function(d) { return d.source.x; })
+        .attr('y1', function(d) { return d.source.y; })
+        .attr('x2', function(d) { return d.target.x; })
+        .attr('y2', function(d) { return d.target.y; });
+      node.attr('transform', function(d) {
+        return 'translate('+d.x+','+d.y+')';
+      });
+    });
 
   // Stats
-  var ne = nos.filter(n => n.tipo==='empresa').length;
-  var na = nos.filter(n => n.tipo==='arquivo').length;
-  var nc = nos.filter(n => n.tipo==='contexto').length;
+  var ne = nos.filter(function(n) { return n.tipo==='empresa'; }).length;
+  var na = nos.filter(function(n) { return n.tipo==='arquivo'; }).length;
+  var nc = nos.filter(function(n) { return n.tipo==='contexto'; }).length;
   document.getElementById('cnt-empresas').textContent  = ne;
   document.getElementById('cnt-arquivos').textContent  = na;
   document.getElementById('cnt-contextos').textContent = nc;
