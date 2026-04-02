@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Knowledge Base · Follow</title>
+  <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --black:  #141414; --sky: #7FD6E4; --grey: #92B1B8;
+      --light:  #DEE8F0; --white: #FFFFFF; --bg: #F4F8FA;
+      --muted:  #6b8088; --border: rgba(20,20,20,0.08);
+      --border2: rgba(20,20,20,0.14); --font: 'Urbanist', sans-serif;
+    }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font); background: var(--bg);
+      color: var(--black); overflow: hidden;
+    }
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      height: 56px; background: rgba(244,248,250,0.95);
+      backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center;
+      justify-content: space-between; padding: 0 2rem;
+    }
+    .nav-logo { display: flex; align-items: center; gap: 12px; }
+    .nav-wordmark {
+      font-size: 20px; font-weight: 500; font-style: italic;
+      color: var(--black); letter-spacing: -0.01em;
+    }
+    .nav-tagline {
+      font-size: 9px; font-weight: 600; letter-spacing: 0.22em;
+      color: var(--grey); text-transform: uppercase;
+    }
+    #status {
+      font-size: 9px; font-weight: 600; letter-spacing: 0.15em;
+      text-transform: uppercase; display: flex;
+      align-items: center; gap: 6px;
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--grey);
+    }
+    .status-dot.conectado { background: var(--sky); }
+    #grafo-wrap {
+      position: fixed; top: 56px; left: 0; right: 280px; bottom: 48px;
+      background: var(--white);
+    }
+    #grafo-wrap svg { width: 100%; height: 100%; }
+    #sidebar {
+      position: fixed; top: 56px; right: 0; width: 280px; bottom: 48px;
+      background: var(--white); border-left: 1px solid var(--border);
+      overflow-y: auto; padding: 20px;
+    }
+    #sidebar h3 {
+      font-size: 9px; font-weight: 600; letter-spacing: 0.22em;
+      text-transform: uppercase; color: var(--sky); margin-bottom: 14px;
+    }
+    .stat {
+      display: flex; justify-content: space-between;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .stat-label { color: var(--muted); }
+    .stat-value { font-weight: 500; }
+    #detalhe {
+      margin-top: 20px; padding-top: 20px;
+      border-top: 1px solid var(--border);
+    }
+    #detalhe h3 { margin-bottom: 12px; }
+    .detalhe-tipo {
+      font-size: 9px; font-weight: 600; letter-spacing: 0.15em;
+      text-transform: uppercase; color: var(--sky); margin-bottom: 8px;
+    }
+    .detalhe-nome {
+      font-size: 16px; font-weight: 500; margin-bottom: 8px;
+    }
+    .detalhe-info {
+      font-size: 12px; color: var(--muted); line-height: 1.6;
+    }
+    #filtros {
+      display: flex; gap: 6px; flex-wrap: wrap; margin-top: 16px;
+    }
+    .filtro-btn {
+      font-family: var(--font); font-size: 9px; font-weight: 600;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      padding: 4px 10px; border: 1px solid var(--border2);
+      background: var(--white); color: var(--muted);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .filtro-btn.ativo {
+      background: var(--black); color: var(--white);
+      border-color: var(--black);
+    }
+    .legenda {
+      margin-top: 16px; display: flex;
+      flex-direction: column; gap: 8px;
+    }
+    .leg-item {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--grey);
+    }
+    .leg-dot { width: 9px; height: 9px; border-radius: 50%; }
+    footer {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 48px;
+      background: rgba(244,248,250,0.95);
+      backdrop-filter: blur(18px);
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center;
+      justify-content: space-between; padding: 0 2rem;
+      font-size: 11px; color: var(--muted);
+    }
+    .fw { font-size: 16px; font-weight: 500; font-style: italic; color: var(--black); }
+    .ft { font-size: 9px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--grey); }
+    .node circle { stroke: var(--white); stroke-width: 2px; cursor: pointer; transition: opacity 0.2s; }
+    .node circle:hover { opacity: 0.75; }
+    .node text { font-family: var(--font); font-size: 11px; fill: var(--black); pointer-events: none; user-select: none; }
+    .link { stroke-width: 1px; fill: none; }
+    .link.TEM_ARQUIVO { stroke: rgba(127,214,228,0.45); }
+    .link.GERA_CONTEXTO { stroke: rgba(146,177,184,0.3); stroke-dasharray: 3,3; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">
+    <span class="nav-wordmark">follow</span>
+    <span style="width:1px;height:16px;background:var(--border2);"></span>
+    <span class="nav-tagline">Knowledge Base</span>
+  </div>
+  <div id="status">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">conectando...</span>
+  </div>
+</nav>
+
+<div id="grafo-wrap"></div>
+
+<div id="sidebar">
+  <h3>Portfólio</h3>
+  <div class="stat">
+    <span class="stat-label">Empresas</span>
+    <span class="stat-value" id="cnt-empresas">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Arquivos</span>
+    <span class="stat-value" id="cnt-arquivos">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Contextos</span>
+    <span class="stat-value" id="cnt-contextos">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Atualizado</span>
+    <span class="stat-value" id="cnt-timestamp">—</span>
+  </div>
+
+  <div id="filtros">
+    <button class="filtro-btn ativo" onclick="filtrar('todos',this)">TODOS</button>
+    <button class="filtro-btn" onclick="filtrar('empresa',this)">EMPRESAS</button>
+    <button class="filtro-btn" onclick="filtrar('arquivo',this)">ARQUIVOS</button>
+    <button class="filtro-btn" onclick="filtrar('contexto',this)">CONTEXTOS</button>
+  </div>
+
+  <div class="legenda">
+    <div class="leg-item">
+      <div class="leg-dot" style="background:#7FD6E4;"></div>Empresa
+    </div>
+    <div class="leg-item">
+      <div class="leg-dot" style="background:#141414;"></div>Arquivo
+    </div>
+    <div class="leg-item">
+      <div class="leg-dot" style="background:#92B1B8;"></div>Contexto
+    </div>
+  </div>
+
+  <div id="detalhe" style="display:none;">
+    <h3>Detalhe</h3>
+    <div class="detalhe-tipo" id="d-tipo"></div>
+    <div class="detalhe-nome" id="d-nome"></div>
+    <div class="detalhe-info" id="d-info"></div>
+  </div>
+</div>
+
+<footer>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="fw">follow</span>
+    <div style="width:1px;height:14px;background:var(--border2);"></div>
+    <span class="ft">From Risk to Value</span>
+  </div>
+  <div id="footer-info">—</div>
+</footer>
+
+<script>
+var CORES = { empresa:'#7FD6E4', arquivo:'#141414', contexto:'#92B1B8' };
+var RAIOS = { empresa:18, arquivo:11, contexto:7 };
+var simulation, link, node, svg, g;
+var grafoAtual = { nos: [], arestas: [] };
+var filtroAtivo = 'todos';
+
+function initGrafo() {
+  var wrap = document.getElementById('grafo-wrap');
+  var W = wrap.clientWidth, H = wrap.clientHeight;
+
+  svg = d3.select('#grafo-wrap').append('svg')
+    .attr('viewBox', '0 0 ' + W + ' ' + H)
+    .attr('width', W).attr('height', H)
+    .call(d3.zoom().scaleExtent([0.2,4])
+      .on('zoom', e => g.attr('transform', e.transform)));
+
+  g = svg.append('g');
+
+  simulation = d3.forceSimulation()
+    .force('link', d3.forceLink().id(d => d.id)
+      .distance(d => d.tipo === 'TEM_ARQUIVO' ? 90 : 45)
+      .strength(0.8))
+    .force('charge', d3.forceManyBody()
+      .strength(d => d.tipo === 'empresa' ? -400 : -100))
+    .force('collision', d3.forceCollide()
+      .radius(d => RAIOS[d.tipo] + 8));
+}
+
+function renderGrafo(grafo) {
+  grafoAtual = grafo;
+  var nos    = grafo.nos    || [];
+  var arestas = grafo.arestas || [];
+
+  var wrap = document.getElementById('grafo-wrap');
+  var W = wrap.clientWidth, H = wrap.clientHeight;
+
+  simulation.force('center', d3.forceCenter(W/2, H/2));
+
+  g.selectAll('*').remove();
+
+  link = g.append('g').selectAll('line')
+    .data(arestas).enter().append('line')
+    .attr('class', d => 'link ' + d.tipo);
+
+  node = g.append('g').selectAll('.node')
+    .data(nos).enter().append('g')
+    .attr('class','node')
+    .call(d3.drag()
+      .on('start', (e,d) => {
+        if(!e.active) simulation.alphaTarget(0.3).restart();
+        d.fx=d.x; d.fy=d.y;
+      })
+      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e,d) => {
+        if(!e.active) simulation.alphaTarget(0);
+        d.fx=null; d.fy=null;
+      }))
+    .on('click', mostrarDetalhe);
+
+  node.append('circle')
+    .attr('r', d => RAIOS[d.tipo])
+    .attr('fill', d => CORES[d.tipo]);
+
+  node.append('text')
+    .attr('dy', d => RAIOS[d.tipo] + 13)
+    .attr('text-anchor','middle')
+    .text(d => d.tipo !== 'contexto'
+      ? (d.nome.length > 16 ? d.nome.slice(0,16)+'…' : d.nome) : '');
+
+  simulation.nodes(nos).on('tick', () => {
+    link
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    node.attr('transform', d => 'translate('+d.x+','+d.y+')');
+  });
+
+  simulation.force('link').links(arestas);
+  simulation.alpha(0.8).restart();
+
+  // Stats
+  var ne = nos.filter(n => n.tipo==='empresa').length;
+  var na = nos.filter(n => n.tipo==='arquivo').length;
+  var nc = nos.filter(n => n.tipo==='contexto').length;
+  document.getElementById('cnt-empresas').textContent  = ne;
+  document.getElementById('cnt-arquivos').textContent  = na;
+  document.getElementById('cnt-contextos').textContent = nc;
+  document.getElementById('footer-info').textContent   =
+    ne + ' empresa(s) · ' + na + ' arquivo(s) · ' + nc + ' contexto(s)';
+
+  aplicarFiltro(filtroAtivo);
+}
+
+function mostrarDetalhe(event, d) {
+  document.getElementById('detalhe').style.display = 'block';
+  document.getElementById('d-tipo').textContent = d.tipo;
+  document.getElementById('d-nome').textContent = d.nome;
+  var info = '';
+  if(d.setor)  info += 'Setor: ' + d.setor + '\n';
+  if(d.status) info += 'Status: ' + d.status + '\n';
+  if(d.resumo) info += d.resumo;
+  document.getElementById('d-info').textContent = info;
+}
+
+function filtrar(tipo, btn) {
+  filtroAtivo = tipo;
+  document.querySelectorAll('.filtro-btn')
+    .forEach(b => b.classList.remove('ativo'));
+  btn.classList.add('ativo');
+  aplicarFiltro(tipo);
+}
+
+function aplicarFiltro(tipo) {
+  if(!node) return;
+  node.style('opacity', d =>
+    tipo === 'todos' || d.tipo === tipo ? 1 : 0.08);
+  link.style('opacity', tipo === 'todos' ? 1 : 0.05);
+}
+
+// WebSocket
+function conectarWS() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onopen = function() {
+    document.getElementById('status-dot').classList.add('conectado');
+    document.getElementById('status-text').textContent = 'ao vivo';
+  };
+
+  ws.onmessage = function(e) {
+    var msg = JSON.parse(e.data);
+    if(msg.tipo === 'ping') return;
+    if(msg.grafo) {
+      renderGrafo(msg.grafo);
+      var ts = new Date(msg.timestamp);
+      document.getElementById('cnt-timestamp').textContent =
+        ts.toLocaleTimeString('pt-BR');
+    }
+  };
+
+  ws.onclose = function() {
+    document.getElementById('status-dot').classList.remove('conectado');
+    document.getElementById('status-text').textContent = 'reconectando...';
+    setTimeout(conectarWS, 3000);
+  };
+
+  ws.onerror = function() { ws.close(); };
+}
+
+// Init
+initGrafo();
+conectarWS();
+</script>
+</body>
+</html>
