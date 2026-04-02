@@ -217,12 +217,21 @@ function initGrafo() {
 
   simulation = d3.forceSimulation()
     .force('link', d3.forceLink().id(d => d.id)
-      .distance(d => d.tipo === 'TEM_ARQUIVO' ? 90 : 45)
-      .strength(0.8))
+      .distance(function(d) {
+        return d.tipo === 'TEM_ARQUIVO' ? 120 : 60;
+      })
+      .strength(0.5))
     .force('charge', d3.forceManyBody()
-      .strength(d => d.tipo === 'empresa' ? -400 : -100))
+      .strength(function(d) {
+        if(d.tipo === 'empresa') return -800;
+        if(d.tipo === 'arquivo') return -300;
+        return -100;
+      }))
     .force('collision', d3.forceCollide()
-      .radius(d => RAIOS[d.tipo] + 8));
+      .radius(function(d) { return RAIOS[d.tipo] + 20; })
+      .strength(1))
+    .alphaDecay(0.02)
+    .velocityDecay(0.3);
 }
 
 function renderGrafo(grafo) {
@@ -267,8 +276,10 @@ function renderGrafo(grafo) {
       ? (d.nome.length > 16 ? d.nome.slice(0,16)+'…' : d.nome) : '');
 
   nos.forEach(function(n, i) {
-    if(!n.x) n.x = W/2 + (Math.random()-0.5) * 300;
-    if(!n.y) n.y = H/2 + (Math.random()-0.5) * 300;
+    var angle = (i / nos.length) * 2 * Math.PI;
+    var radius = 150 + Math.random() * 150;
+    if(!n.x) n.x = W/2 + Math.cos(angle) * radius;
+    if(!n.y) n.y = H/2 + Math.sin(angle) * radius;
   });
 
   simulation.nodes(nos).on('tick', () => {
