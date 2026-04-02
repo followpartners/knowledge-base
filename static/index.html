@@ -315,39 +315,26 @@ function aplicarFiltro(tipo) {
   link.style('opacity', tipo === 'todos' ? 1 : 0.05);
 }
 
-// WebSocket
-function conectarWS() {
-  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var ws = new WebSocket(proto + '//' + location.host + '/ws');
-
-  ws.onopen = function() {
-    document.getElementById('status-dot').classList.add('conectado');
-    document.getElementById('status-text').textContent = 'ao vivo';
-  };
-
-  ws.onmessage = function(e) {
-    var msg = JSON.parse(e.data);
-    if(msg.tipo === 'ping') return;
-    if(msg.grafo) {
-      renderGrafo(msg.grafo);
-      var ts = new Date(msg.timestamp);
-      document.getElementById('cnt-timestamp').textContent =
-        ts.toLocaleTimeString('pt-BR');
-    }
-  };
-
-  ws.onclose = function() {
-    document.getElementById('status-dot').classList.remove('conectado');
-    document.getElementById('status-text').textContent = 'reconectando...';
-    setTimeout(conectarWS, 3000);
-  };
-
-  ws.onerror = function() { ws.close(); };
+// HTTP Polling
+function carregarGrafo() {
+  fetch('/grafo')
+    .then(r => r.json())
+    .then(grafo => {
+      renderGrafo(grafo);
+      var ts = new Date().toLocaleTimeString('pt-BR');
+      document.getElementById('cnt-timestamp').textContent = ts;
+      document.getElementById('status-dot').classList.add('conectado');
+      document.getElementById('status-text').textContent = 'ao vivo';
+    })
+    .catch(e => {
+      document.getElementById('status-text').textContent = 'erro';
+    });
 }
 
 // Init
 initGrafo();
-conectarWS();
+carregarGrafo();
+setInterval(carregarGrafo, 10000);
 </script>
 </body>
 </html>
