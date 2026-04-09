@@ -47,90 +47,71 @@ def get_driver():
     return _driver
 
 
-def _grafo_para_json(user_id: str = None) -> dict:
+def _grafo_para_json(org_id: str = None) -> dict:
     """
     Lê o grafo do Neo4j e retorna JSON de nós e arestas.
-    Busca cada tipo de nó separadamente e constrói arestas
-    via propriedade empresa_id (não depende de relacionamentos).
+    Usa relationships reais do schema Baykal.
     """
-    filtro_empresa = "{user_id: $user_id}" if user_id else ""
-    params = {"user_id": user_id} if user_id else {}
+    query = """
+    MATCH (o:Org)
+    WHERE $org_id IS NULL OR o.id = $org_id
+    OPTIONAL MATCH (o)-[:TEM_ARQUIVO]->(a:Arquivo)
+    OPTIONAL MATCH (a)-[:GERA_CONTEXTO]->(c:Contexto)
+    RETURN o, a, c
+    """
+    params = {"org_id": org_id}
 
     nos, arestas = [], []
-    empresas_idx = {}
-    arquivos_idx = {}
+    ids_vistos = set()
 
     with get_driver().session() as session:
-        # ── Empresas ───────────────────────────────────────────
-        for rec in session.run(
-            f"MATCH (e:Empresa {filtro_empresa}) RETURN e", **params
-        ):
-            e = rec["e"]
-            eid = e["id"]
-            empresas_idx[eid] = True
-            nos.append({
-                "id":     eid,
-                "tipo":   "empresa",
-                "nome":   e.get("nome_principal", e.get("nome", eid)),
-                "setor":  e.get("setor", ""),
-                "status": e.get("status", "ativa"),
-                "grupo":  1,
-            })
+        result = session.run(query, **params)
+        for record in result:
+            o = record["o"]
+            a = record["a"]
+            c = record["c"]
 
-        # ── Arquivos ───────────────────────────────────────────
-        q_arq = (
-            "MATCH (a:Arquivo {empresa_id: $user_id}) RETURN a"
-            if user_id else "MATCH (a:Arquivo) RETURN a"
-        )
-        for rec in session.run(q_arq, **params):
-            a = rec["a"]
-            aid = a["id"]
-            emp = a.get("empresa_id", "")
-            arquivos_idx[aid] = emp
-            nos.append({
-                "id":         aid,
-                "tipo":       "arquivo",
-                "nome":       a.get("nome", aid),
-                "empresa_id": emp,
-                "grupo":      2,
-            })
-            if emp in empresas_idx:
-                arestas.append({
-                    "origem":  emp,
-                    "destino": aid,
-                    "tipo":    "TEM_ARQUIVO",
+            if o and o["id"] not in ids_vistos:
+                nos.append({
+                    "id":    o["id"],
+                    "tipo":  "org",
+                    "nome":  o.get("nome", o["id"]),
+                    "grupo": 1,
                 })
+                ids_vistos.add(o["id"])
 
-        # ── Contextos ──────────────────────────────────────────
-        q_ctx = (
-            "MATCH (c:Contexto {empresa_id: $user_id}) RETURN c"
-            if user_id else "MATCH (c:Contexto) RETURN c"
-        )
-        for rec in session.run(q_ctx, **params):
-            c = rec["c"]
-            cid = c["id"]
-            emp = c.get("empresa_id", "")
-            arq = c.get("arquivo_id", "")
-            nos.append({
-                "id":         cid,
-                "tipo":       "contexto",
-                "nome":       "Contexto",
-                "resumo":     c.get("texto", "")[:120],
-                "empresa_id": emp,
-                "grupo":      3,
-            })
-            if arq and arq in arquivos_idx:
-                arestas.append({
-                    "origem":  arq,
-                    "destino": cid,
-                    "tipo":    "GERA_CONTEXTO",
+            if a and a["id"] not in ids_vistos:
+                nos.append({
+                    "id":     a["id"],
+                    "tipo":   "arquivo",
+                    "nome":   a.get("nome", a["id"]),
+                    "org_id": a.get("org_id", ""),
+                    "grupo":  2,
                 })
-            elif emp in empresas_idx:
-                arestas.append({
-                    "origem":  emp,
-                    "destino": cid,
-                    "tipo":    "GERA_CONTEXTO",
+                ids_vistos.add(a["id"])
+                if o:
+                    arestas.append({
+                        "origem":  o["id"],
+                        "destino": a["id"],
+                        "tipo":    "TEM_ARQUIVO",
+                    })
+
+            if c and c["id"] not in ids_vistos:
+                nos.append({
+                    "id":     c["id"],
+                    "tipo":   "contexto",
+                    "nome":   "Contexto",
+                    "resumo": c.get("texto", "")[:120],
+                    "org_id": c.get("org_id", ""),
+                    "grupo":  3,
                 })
+                ids_vistos.add(c["id"])
+                if a:
+                    arestas.append({
+                        "origem":  a["id"],
+                        "destino": c["id"],
+                        "tipo":    "GERA_CONTEXTO",
+                    })
 
     return {"nos": nos, "arestas": arestas}
 
@@ -176,10 +157,10 @@ async def index():
 
 
 @app.get("/grafo")
-async def grafo(user_id: str = None):
+async def grafo(org_id: str = None):
     """Retorna o grafo atual do Neo4j como JSON."""
     try:
-        return _grafo_para_json(user_id)
+        return _grafo_para_json(org_id)
     except Exception as e:
         logger.error(f"[grafo] erro: {e}")
         return {"nos": [], "arestas": [], "erro": str(e)}

@@ -144,8 +144,8 @@
 <div id="sidebar">
   <h3>Portfólio</h3>
   <div class="stat">
-    <span class="stat-label">Empresas</span>
-    <span class="stat-value" id="cnt-empresas">—</span>
+    <span class="stat-label">Organizações</span>
+    <span class="stat-value" id="cnt-orgs">—</span>
   </div>
   <div class="stat">
     <span class="stat-label">Arquivos</span>
@@ -162,14 +162,14 @@
 
   <div id="filtros">
     <button class="filtro-btn ativo" onclick="filtrar('todos',this)">TODOS</button>
-    <button class="filtro-btn" onclick="filtrar('empresa',this)">EMPRESAS</button>
+    <button class="filtro-btn" onclick="filtrar('org',this)">ORGANIZAÇÕES</button>
     <button class="filtro-btn" onclick="filtrar('arquivo',this)">ARQUIVOS</button>
     <button class="filtro-btn" onclick="filtrar('contexto',this)">CONTEXTOS</button>
   </div>
 
   <div class="legenda">
     <div class="leg-item">
-      <div class="leg-dot" style="background:#7FD6E4;"></div>Empresa
+      <div class="leg-dot" style="background:#7FD6E4;"></div>Organização
     </div>
     <div class="leg-item">
       <div class="leg-dot" style="background:#141414;"></div>Arquivo
@@ -197,8 +197,8 @@
 </footer>
 
 <script>
-var CORES = { empresa:'#7FD6E4', arquivo:'#141414', contexto:'#92B1B8' };
-var RAIOS = { empresa:18, arquivo:11, contexto:7 };
+var CORES = { org:'#7FD6E4', arquivo:'#141414', contexto:'#92B1B8' };
+var RAIOS = { org:18, arquivo:11, contexto:7 };
 var simulation, link, node, svg, g;
 var grafoAtual = { nos: [], arestas: [] };
 var filtroAtivo = 'todos';
@@ -282,7 +282,7 @@ function renderGrafo(grafo) {
       .strength(0.5))
     .force('charge', d3.forceManyBody()
       .strength(function(d) {
-        if(d.tipo === 'empresa') return -800;
+        if(d.tipo === 'org') return -800;
         if(d.tipo === 'arquivo') return -300;
         return -100;
       }))
@@ -304,14 +304,14 @@ function renderGrafo(grafo) {
     });
 
   // Stats
-  var ne = nos.filter(function(n) { return n.tipo==='empresa'; }).length;
+  var ne = nos.filter(function(n) { return n.tipo==='org'; }).length;
   var na = nos.filter(function(n) { return n.tipo==='arquivo'; }).length;
   var nc = nos.filter(function(n) { return n.tipo==='contexto'; }).length;
-  document.getElementById('cnt-empresas').textContent  = ne;
+  document.getElementById('cnt-orgs').textContent  = ne;
   document.getElementById('cnt-arquivos').textContent  = na;
   document.getElementById('cnt-contextos').textContent = nc;
   document.getElementById('footer-info').textContent   =
-    ne + ' empresa(s) · ' + na + ' arquivo(s) · ' + nc + ' contexto(s)';
+    ne + ' org(s) · ' + na + ' arquivo(s) · ' + nc + ' contexto(s)';
 
   aplicarFiltro(filtroAtivo);
 }
