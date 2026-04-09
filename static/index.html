@@ -121,8 +121,7 @@
     .node circle:hover { opacity: 0.75; }
     .node text { font-family: var(--font); font-size: 11px; fill: var(--black); pointer-events: none; user-select: none; }
     .link { stroke-width: 1px; fill: none; }
-    .link.TEM_ARQUIVO { stroke: rgba(127,214,228,0.45); }
-    .link.GERA_CONTEXTO { stroke: rgba(146,177,184,0.3); stroke-dasharray: 3,3; }
+    .link.GERA_CONTEXTO { stroke: rgba(146,177,184,0.4); }
   </style>
 </head>
 <body>
@@ -144,10 +143,6 @@
 <div id="sidebar">
   <h3>Portfólio</h3>
   <div class="stat">
-    <span class="stat-label">Organizações</span>
-    <span class="stat-value" id="cnt-orgs">—</span>
-  </div>
-  <div class="stat">
     <span class="stat-label">Arquivos</span>
     <span class="stat-value" id="cnt-arquivos">—</span>
   </div>
@@ -162,17 +157,13 @@
 
   <div id="filtros">
     <button class="filtro-btn ativo" onclick="filtrar('todos',this)">TODOS</button>
-    <button class="filtro-btn" onclick="filtrar('org',this)">ORGANIZAÇÕES</button>
     <button class="filtro-btn" onclick="filtrar('arquivo',this)">ARQUIVOS</button>
     <button class="filtro-btn" onclick="filtrar('contexto',this)">CONTEXTOS</button>
   </div>
 
   <div class="legenda">
     <div class="leg-item">
-      <div class="leg-dot" style="background:#7FD6E4;"></div>Organização
-    </div>
-    <div class="leg-item">
-      <div class="leg-dot" style="background:#141414;"></div>Arquivo
+      <div class="leg-dot" style="background:#7FD6E4;"></div>Arquivo
     </div>
     <div class="leg-item">
       <div class="leg-dot" style="background:#92B1B8;"></div>Contexto
@@ -197,8 +188,8 @@
 </footer>
 
 <script>
-var CORES = { org:'#7FD6E4', arquivo:'#141414', contexto:'#92B1B8' };
-var RAIOS = { org:18, arquivo:11, contexto:7 };
+var CORES = { arquivo:'#7FD6E4', contexto:'#92B1B8' };
+var RAIOS = { arquivo:18, contexto:10 };
 var simulation, link, node, svg, g;
 var grafoAtual = { nos: [], arestas: [] };
 var filtroAtivo = 'todos';
@@ -276,14 +267,11 @@ function renderGrafo(grafo) {
   // Create fresh simulation each render
   simulation = d3.forceSimulation(nos)
     .force('link', d3.forceLink(links).id(function(d) { return d.id; })
-      .distance(function(d) {
-        return d.tipo === 'TEM_ARQUIVO' ? 120 : 60;
-      })
+      .distance(80)
       .strength(0.5))
     .force('charge', d3.forceManyBody()
       .strength(function(d) {
-        if(d.tipo === 'org') return -800;
-        if(d.tipo === 'arquivo') return -300;
+        if(d.tipo === 'arquivo') return -600;
         return -100;
       }))
     .force('center', d3.forceCenter(W/2, H/2))
@@ -304,14 +292,12 @@ function renderGrafo(grafo) {
     });
 
   // Stats
-  var ne = nos.filter(function(n) { return n.tipo==='org'; }).length;
   var na = nos.filter(function(n) { return n.tipo==='arquivo'; }).length;
   var nc = nos.filter(function(n) { return n.tipo==='contexto'; }).length;
-  document.getElementById('cnt-orgs').textContent  = ne;
   document.getElementById('cnt-arquivos').textContent  = na;
   document.getElementById('cnt-contextos').textContent = nc;
   document.getElementById('footer-info').textContent   =
-    ne + ' org(s) · ' + na + ' arquivo(s) · ' + nc + ' contexto(s)';
+    na + ' arquivo(s) · ' + nc + ' contexto(s)';
 
   aplicarFiltro(filtroAtivo);
 }
@@ -321,8 +307,8 @@ function mostrarDetalhe(event, d) {
   document.getElementById('d-tipo').textContent = d.tipo;
   document.getElementById('d-nome').textContent = d.nome;
   var info = '';
-  if(d.setor)  info += 'Setor: ' + d.setor + '\n';
-  if(d.status) info += 'Status: ' + d.status + '\n';
+  if(d.data)   info += 'Data: ' + d.data + '\n';
+  if(d.fonte)  info += 'Fonte: ' + d.fonte + '\n';
   if(d.resumo) info += d.resumo;
   document.getElementById('d-info').textContent = info;
 }

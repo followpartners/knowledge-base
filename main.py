@@ -1,20 +1,19 @@
 """
 Follow Partners — Knowledge Base
-Servidor FastAPI com WebSocket para visualização
-em tempo real do grafo de conhecimento no Neo4j.
+Servidor FastAPI que lê dados do S3 e monta grafo
+com NetworkX para visualização D3.js.
 """
 
 import os
 import json
-import asyncio
 import logging
-from typing import Set
 from datetime import datetime
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException
+import boto3
+import networkx as nx
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from neo4j import GraphDatabase
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -31,120 +30,126 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Neo4j ──────────────────────────────────────────────────────────────────────
+# ── S3 ─────────────────────────────────────────────────────────────────────────
 
-_driver = None
+BUCKET = os.getenv("AWS_BUCKET_NAME", "cfo-agent-banco")
+REGION = os.getenv("AWS_REGION", "sa-east-1")
 
-def get_driver():
-    global _driver
-    if _driver is None:
-        uri      = os.getenv("NEO4J_URI")
-        user     = os.getenv("NEO4J_USERNAME", "neo4j")
-        password = os.getenv("NEO4J_PASSWORD")
-        if not uri or not password:
-            raise ValueError("NEO4J_URI e NEO4J_PASSWORD são obrigatórios")
-        _driver = GraphDatabase.driver(uri, auth=(user, password))
-    return _driver
+_s3 = None
 
+def get_s3():
+    global _s3
+    if _s3 is None:
+        _s3 = boto3.client(
+            "s3",
+            region_name=REGION,
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        )
+    return _s3
+
+
+def _ler_json_s3(key: str):
+    """Lê um arquivo JSON do S3. Retorna None se não existir."""
+    try:
+        resp = get_s3().get_object(Bucket=BUCKET, Key=key)
+        return json.loads(resp["Body"].read().decode("utf-8"))
+    except get_s3().exceptions.NoSuchKey:
+        return None
+    except Exception as e:
+        logger.warning(f"[s3] erro ao ler {key}: {e}")
+        return None
+
+
+# ── Cache ──────────────────────────────────────────────────────────────────────
+
+_cache = {}
+
+def _invalidar_cache(org_id: str = None):
+    """Invalida o cache do grafo. Se org_id, só invalida essa org."""
+    if org_id:
+        _cache.pop(org_id, None)
+    else:
+        _cache.clear()
+    logger.info(f"[cache] invalidado org_id={org_id or 'todos'}")
+
+
+# ── Grafo ──────────────────────────────────────────────────────────────────────
 
 def _grafo_para_json(org_id: str = None) -> dict:
     """
-    Lê o grafo do Neo4j e retorna JSON de nós e arestas.
-    Usa relationships reais do schema Baykal.
+    Lê a estrutura de documentos do S3 e monta o grafo
+    com NetworkX. Retorna JSON de nós e arestas.
     """
-    query = """
-    MATCH (o:Org)
-    WHERE $org_id IS NULL OR o.id = $org_id
-    OPTIONAL MATCH (o)-[:TEM_ARQUIVO]->(a:Arquivo)
-    OPTIONAL MATCH (a)-[:GERA_CONTEXTO]->(c:Contexto)
-    RETURN o, a, c
-    """
-    params = {"org_id": org_id}
+    if not org_id:
+        return {"nos": [], "arestas": [], "erro": "org_id obrigatório"}
 
-    nos, arestas = [], []
-    ids_vistos = set()
+    if org_id in _cache:
+        return _cache[org_id]
 
-    with get_driver().session() as session:
-        result = session.run(query, **params)
-        for record in result:
-            o = record["o"]
-            a = record["a"]
-            c = record["c"]
+    G = nx.DiGraph()
+    prefix = f"orgs/{org_id}/documentos"
 
-            if o and o["id"] not in ids_vistos:
-                nos.append({
-                    "id":    o["id"],
-                    "tipo":  "org",
-                    "nome":  o.get("nome", o["id"]),
-                    "grupo": 1,
-                })
-                ids_vistos.add(o["id"])
+    # Lê índice de slugs
+    indice = _ler_json_s3(f"{prefix}/indice.json")
+    if not indice:
+        return {"nos": [], "arestas": []}
 
-            if a and a["id"] not in ids_vistos:
-                nos.append({
-                    "id":     a["id"],
-                    "tipo":   "arquivo",
-                    "nome":   a.get("nome", a["id"]),
-                    "org_id": a.get("org_id", ""),
-                    "grupo":  2,
-                })
-                ids_vistos.add(a["id"])
-                if o:
-                    arestas.append({
-                        "origem":  o["id"],
-                        "destino": a["id"],
-                        "tipo":    "TEM_ARQUIVO",
-                    })
+    slugs = indice if isinstance(indice, list) else indice.get("slugs", [])
 
-            if c and c["id"] not in ids_vistos:
-                nos.append({
-                    "id":     c["id"],
-                    "tipo":   "contexto",
-                    "nome":   "Contexto",
-                    "resumo": c.get("texto", "")[:120],
-                    "org_id": c.get("org_id", ""),
-                    "grupo":  3,
-                })
-                ids_vistos.add(c["id"])
-                if a:
-                    arestas.append({
-                        "origem":  a["id"],
-                        "destino": c["id"],
-                        "tipo":    "GERA_CONTEXTO",
-                    })
+    for slug in slugs:
+        base = f"{prefix}/arquivos/{slug}"
 
-    return {"nos": nos, "arestas": arestas}
+        # Lê metadata do arquivo
+        meta = _ler_json_s3(f"{base}/metadata.json")
+        if not meta:
+            continue
 
+        arquivo_id = slug
+        G.add_node(arquivo_id, **{
+            "tipo":  "arquivo",
+            "nome":  meta.get("nome", slug),
+            "data":  meta.get("data_upload", ""),
+        })
 
-# ── WebSocket Manager ──────────────────────────────────────────────────────────
+        # Lê contextos do arquivo
+        contextos = _ler_json_s3(f"{base}/contextos.json")
+        if not contextos or not isinstance(contextos, list):
+            continue
 
-class ConnectionManager:
-    def __init__(self):
-        self.active: Set[WebSocket] = set()
+        for i, ctx in enumerate(contextos):
+            ctx_id = f"{slug}_ctx_{i}"
+            G.add_node(ctx_id, **{
+                "tipo":  "contexto",
+                "texto": ctx.get("texto", "")[:120],
+                "fonte": ctx.get("fonte", ""),
+                "data":  ctx.get("data", ""),
+            })
+            G.add_edge(arquivo_id, ctx_id, tipo="GERA_CONTEXTO")
 
-    async def connect(self, ws: WebSocket):
-        await ws.accept()
-        self.active.add(ws)
-        logger.info(f"[ws] cliente conectado — total: {len(self.active)}")
+    # Converte para JSON
+    nos = []
+    for nid, attrs in G.nodes(data=True):
+        no = {"id": nid, **attrs}
+        if attrs["tipo"] == "arquivo":
+            no["grupo"] = 1
+        else:
+            no["nome"] = "Contexto"
+            no["resumo"] = attrs.get("texto", "")
+            no["grupo"] = 2
+        nos.append(no)
 
-    def disconnect(self, ws: WebSocket):
-        self.active.discard(ws)
-        logger.info(f"[ws] cliente desconectado — total: {len(self.active)}")
+    arestas = []
+    for u, v, attrs in G.edges(data=True):
+        arestas.append({
+            "origem":  u,
+            "destino": v,
+            "tipo":    attrs.get("tipo", "GERA_CONTEXTO"),
+        })
 
-    async def broadcast(self, data: dict):
-        if not self.active:
-            return
-        msg = json.dumps(data, ensure_ascii=False)
-        mortos = set()
-        for ws in self.active:
-            try:
-                await ws.send_text(msg)
-            except Exception:
-                mortos.add(ws)
-        self.active -= mortos
-
-
-manager = ConnectionManager()
+    resultado = {"nos": nos, "arestas": arestas}
+    _cache[org_id] = resultado
+    return resultado
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -158,7 +163,7 @@ async def index():
 
 @app.get("/grafo")
 async def grafo(org_id: str = None):
-    """Retorna o grafo atual do Neo4j como JSON."""
+    """Retorna o grafo de uma organização como JSON."""
     try:
         return _grafo_para_json(org_id)
     except Exception as e:
@@ -167,50 +172,17 @@ async def grafo(org_id: str = None):
 
 
 @app.post("/notify")
-async def notify(x_notify_token: str = Header(None)):
+async def notify(
+    x_notify_token: str = Header(None),
+    org_id: str = None,
+):
     """
-    Chamado pelo cfo-agent quando dados são atualizados no Neo4j.
-    Faz broadcast do grafo atualizado para todos os clientes conectados.
+    Chamado pelo cfo-agent quando novos dados são escritos no S3.
+    Invalida o cache para forçar releitura na próxima requisição.
     """
     token_esperado = os.getenv("NOTIFY_TOKEN", "follow2024")
     if x_notify_token != token_esperado:
         raise HTTPException(status_code=401, detail="token inválido")
 
-    try:
-        grafo = _grafo_para_json()
-        await manager.broadcast({
-            "tipo":      "update",
-            "grafo":     grafo,
-            "timestamp": datetime.now().isoformat(),
-        })
-        return {
-            "ok":      True,
-            "clients": len(manager.active),
-            "nos":     len(grafo["nos"]),
-        }
-    except Exception as e:
-        logger.error(f"[notify] erro: {e}")
-        return {"ok": False, "erro": str(e)}
-
-
-@app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    await manager.connect(ws)
-    try:
-        # Envia o grafo atual ao conectar
-        grafo = _grafo_para_json()
-        await ws.send_text(json.dumps({
-            "tipo":      "init",
-            "grafo":     grafo,
-            "timestamp": datetime.now().isoformat(),
-        }, ensure_ascii=False))
-
-        # Mantém conexão viva com ping
-        while True:
-            await asyncio.sleep(30)
-            await ws.send_text(json.dumps({"tipo": "ping"}))
-    except WebSocketDisconnect:
-        manager.disconnect(ws)
-    except Exception as e:
-        logger.error(f"[ws] erro: {e}")
-        manager.disconnect(ws)
+    _invalidar_cache(org_id)
+    return {"ok": True, "invalidado": org_id or "todos"}
