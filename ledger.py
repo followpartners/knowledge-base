@@ -8,7 +8,7 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
-BUCKET = os.getenv("S3_BUCKET_NAME", "")
+BUCKET = os.getenv("AWS_BUCKET_NAME", "")
 REGION = os.getenv("AWS_REGION", "sa-east-1")
 BRT = ZoneInfo("America/Sao_Paulo")
 
