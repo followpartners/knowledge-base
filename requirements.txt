@@ -1,5 +1,1 @@
-fastapi
-uvicorn
-boto3
-networkx
-python-dotenv
+# dependências serão adicionadas
