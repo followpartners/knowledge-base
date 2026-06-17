@@ -46,7 +46,7 @@ def listar_arquivos() -> list[dict]:
                 pageSize=1000,
                 fields=fields,
                 pageToken=page_token,
-                q="trashed = false",
+                q="trashed = false and mimeType != 'application/vnd.google-apps.folder'",
             )
             .execute()
         )

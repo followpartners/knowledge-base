@@ -39,7 +39,7 @@ def extrair_texto(service, arquivo: dict) -> str | None:
 
 def _export(service, file_id: str, mime_out: str) -> str:
     data = service.files().export(fileId=file_id, mimeType=mime_out).execute()
-    return data.decode("utf-8") if isinstance(data, bytes) else data
+    return data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
 
 
 def _download(service, file_id: str) -> bytes:
