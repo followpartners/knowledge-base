@@ -1,1 +1,9 @@
-# dependências serão adicionadas
+fastapi
+uvicorn
+apscheduler
+google-api-python-client
+google-auth
+boto3
+PyPDF2
+python-docx
+python-dotenv
