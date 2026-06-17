@@ -16,7 +16,11 @@ _service = None
 def _get_credentials():
     raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
     info = json.loads(base64.b64decode(raw))
-    return Credentials.from_service_account_info(info, scopes=SCOPES)
+    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+    subject = os.getenv("GOOGLE_IMPERSONATE_EMAIL", "")
+    if subject:
+        creds = creds.with_subject(subject)
+    return creds
 
 
 def get_service():

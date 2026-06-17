@@ -46,6 +46,15 @@ def _extrair_registros(conteudo: str) -> dict[str, str]:
     return registros
 
 
+def _remover_entrada(conteudo: str, file_id: str) -> str:
+    return re.sub(
+        rf"## [^\n]+\n<!-- file_id:{re.escape(file_id)} [^\n]+ -->\n.*?(?=\n## |\Z)",
+        "",
+        conteudo,
+        flags=re.DOTALL,
+    ).strip()
+
+
 def gravar(org_id: str, entradas: list[dict]) -> int:
     agora = datetime.now(BRT)
     key = _s3_key(org_id, agora)
@@ -57,8 +66,11 @@ def gravar(org_id: str, entradas: list[dict]) -> int:
     for e in entradas:
         fid = e["file_id"]
         mod = e["modifiedTime"]
-        if fid in registros and mod <= registros[fid]:
-            continue
+        if fid in registros:
+            if mod <= registros[fid]:
+                continue
+            else:
+                existente = _remover_entrada(existente, fid)
         novas.append(e)
 
     if not novas:
