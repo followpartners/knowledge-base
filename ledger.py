@@ -123,6 +123,24 @@ def _ler_s3(key: str) -> str:
         return ""
 
 
+def _extrair_entradas_diario(diario_md: str) -> list[str]:
+    """Extrai as linhas [HH:MM] [autor] ... da seção ## Registro
+    do diário do Task Manager, ignorando cabeçalhos e ## Fechamento."""
+    entradas = []
+    em_registro = False
+    for linha in diario_md.split("\n"):
+        stripped = linha.strip()
+        if stripped.startswith("## Registro"):
+            em_registro = True
+            continue
+        if stripped.startswith("## ") and em_registro:
+            em_registro = False
+            continue
+        if em_registro and stripped.startswith("["):
+            entradas.append(stripped)
+    return entradas
+
+
 def compilar_ledger(org_id: str, dia: date) -> int:
     prefixo = _prefixo_dia(org_id, dia)
     secoes = []
@@ -185,7 +203,9 @@ def compilar_ledger(org_id: str, dia: date) -> int:
 
     diario = ler_diario(dia)
     if diario:
-        secoes.append(f"## Diário\n\n{diario.strip()}\n")
+        entradas = _extrair_entradas_diario(diario)
+        if entradas:
+            secoes.append("## Diário\n\n" + "\n".join(entradas) + "\n")
 
     if not secoes:
         logger.info(f"[ledger] nenhum conteúdo para {dia}")
@@ -199,7 +219,7 @@ def compilar_ledger(org_id: str, dia: date) -> int:
         Bucket=BUCKET,
         Key=key_ledger,
         Body=md.encode("utf-8"),
-        ContentType="text/markdown",
+        ContentType="text/markdown; charset=utf-8",
     )
 
     logger.info(f"[ledger] compilado {key_ledger} com {len(secoes)} seções")
