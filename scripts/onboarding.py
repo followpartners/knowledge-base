@@ -15,7 +15,11 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from drive import get_service, download_arquivo
 from extractor import extrair_texto
-from ledger import salvar_arquivo, ler_diario, compilar_ledger, _get_s3, BUCKET, _prefixo_dia
+from summarizer import gerar_summary
+from ledger import (
+    salvar_arquivo, ler_diario, compilar_ledger,
+    _get_s3, BUCKET, _prefixo_dia, _sanitizar_nome, _ler_s3,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -61,21 +65,20 @@ def listar_todos_arquivos(service, desde: date | None = None, ate: date | None =
     return arquivos
 
 
-def arquivo_existe_s3(org_id: str, arquivo: dict) -> bool:
-    created = arquivo.get("createdTime", "")
-    if not created:
-        return False
-
-    dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-    dia = dt.astimezone(BRT).date()
-    nome = arquivo.get("name", arquivo["id"])
-    key = f"{_prefixo_dia(org_id, dia)}/arquivos/{nome}"
-
+def _s3_key_existe(key: str) -> bool:
     try:
         _get_s3().head_object(Bucket=BUCKET, Key=key)
         return True
     except Exception:
         return False
+
+
+def _dia_do_arquivo(arq: dict) -> date:
+    created = arq.get("createdTime", "")
+    if created:
+        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        return dt.astimezone(BRT).date()
+    return date.today()
 
 
 def main():
@@ -97,42 +100,73 @@ def main():
     arquivos = listar_todos_arquivos(service, desde=args.desde, ate=args.ate)
     logger.info(f"[onboarding] {len(arquivos)} arquivos encontrados no Drive")
 
-    processados = 0
+    novos = 0
+    backfilled = 0
     pulados = 0
     erros = 0
     datas = defaultdict(list)
 
     for i, arq in enumerate(arquivos, 1):
-        nome = arq.get("name", arq["id"])
+        raw_nome = arq.get("name", arq["id"])
+        nome = _sanitizar_nome(raw_nome)
+        mime = arq.get("mimeType", "")
 
         try:
-            if arquivo_existe_s3(org_id, arq):
-                logger.info(f"[onboarding] ({i}/{len(arquivos)}) pulando {nome} — já existe")
+            dia = _dia_do_arquivo(arq)
+            prefixo = _prefixo_dia(org_id, dia)
+            key_meta = f"{prefixo}/arquivos/{nome}.meta.json"
+            key_summary = f"{prefixo}/arquivos/{nome}.summary.md"
+
+            meta_existe = _s3_key_existe(key_meta)
+            summary_existe = _s3_key_existe(key_summary)
+
+            if meta_existe and summary_existe:
+                logger.info(f"[onboarding] ({i}/{len(arquivos)}) pulando {raw_nome} — completo")
                 pulados += 1
+                continue
+
+            if meta_existe and not summary_existe:
+                key_txt = f"{prefixo}/arquivos/{nome}.txt"
+                texto = _ler_s3(key_txt)
+                if texto:
+                    summary = gerar_summary(texto, raw_nome, mime)
+                    if summary:
+                        _get_s3().put_object(
+                            Bucket=BUCKET,
+                            Key=key_summary,
+                            Body=summary.encode("utf-8"),
+                            ContentType="text/markdown; charset=utf-8",
+                        )
+                        logger.info(f"[onboarding] ({i}/{len(arquivos)}) backfill summary: {raw_nome}")
+                        backfilled += 1
+                    else:
+                        logger.info(f"[onboarding] ({i}/{len(arquivos)}) sem texto para summary: {raw_nome}")
+                else:
+                    logger.info(f"[onboarding] ({i}/{len(arquivos)}) sem .txt para backfill: {raw_nome}")
+                datas[dia].append(raw_nome)
+                time.sleep(0.5)
                 continue
 
             binario = download_arquivo(service, arq)
             if not binario:
-                logger.warning(f"[onboarding] ({i}/{len(arquivos)}) sem binário: {nome}")
+                logger.warning(f"[onboarding] ({i}/{len(arquivos)}) sem binário: {raw_nome}")
                 erros += 1
                 time.sleep(0.5)
                 continue
 
             texto = extrair_texto(service, arq)
-            key = salvar_arquivo(org_id, arq, binario, texto)
+            summary = gerar_summary(texto, raw_nome, mime) if texto else None
+            key = salvar_arquivo(org_id, arq, binario, texto, summary)
 
             if key:
-                created = arq.get("createdTime", "")
-                dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                dia = dt.astimezone(BRT).date()
-                datas[dia].append(nome)
-                logger.info(f"[onboarding] ({i}/{len(arquivos)}) {nome} → {dia}")
-                processados += 1
+                datas[dia].append(raw_nome)
+                logger.info(f"[onboarding] ({i}/{len(arquivos)}) novo: {raw_nome} → {dia}")
+                novos += 1
             else:
                 erros += 1
 
         except Exception as e:
-            logger.error(f"[onboarding] ({i}/{len(arquivos)}) erro em {nome}: {e}")
+            logger.error(f"[onboarding] ({i}/{len(arquivos)}) erro em {raw_nome}: {e}")
             erros += 1
 
         time.sleep(0.5)
@@ -158,7 +192,8 @@ def main():
     logger.info("")
     logger.info("=" * 50)
     logger.info("[onboarding] RESUMO")
-    logger.info(f"  Arquivos processados:  {processados}")
+    logger.info(f"  Arquivos novos:        {novos}")
+    logger.info(f"  Summaries backfilled:  {backfilled}")
     logger.info(f"  Arquivos pulados:      {pulados}")
     logger.info(f"  Erros:                 {erros}")
     logger.info(f"  Datas com ledger:      {ledgers_compiladas}")

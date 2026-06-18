@@ -36,7 +36,7 @@ def _sanitizar_nome(nome: str) -> str:
     return nome.replace("/", "-").replace("\\", "-")
 
 
-def salvar_arquivo(org_id: str, arquivo: dict, conteudo: bytes, texto: str | None = None) -> str | None:
+def salvar_arquivo(org_id: str, arquivo: dict, conteudo: bytes, texto: str | None = None, summary: str | None = None) -> str | None:
     if not conteudo:
         return None
 
@@ -78,6 +78,15 @@ def salvar_arquivo(org_id: str, arquivo: dict, conteudo: bytes, texto: str | Non
                 Key=key_txt,
                 Body=texto.encode("utf-8"),
                 ContentType="text/plain",
+            )
+
+        if summary is not None:
+            key_summary = f"{prefixo}/arquivos/{nome}.summary.md"
+            s3.put_object(
+                Bucket=BUCKET,
+                Key=key_summary,
+                Body=summary.encode("utf-8"),
+                ContentType="text/markdown; charset=utf-8",
             )
 
         logger.info(f"[ledger] arquivo salvo: {key}")
@@ -147,7 +156,7 @@ def compilar_ledger(org_id: str, dia: date) -> int:
 
     arquivos_keys = [
         k for k in _listar_keys(f"{prefixo}/arquivos/")
-        if not k.endswith(".meta.json") and not k.endswith(".txt")
+        if not k.endswith((".meta.json", ".txt", ".summary.md"))
     ]
     if arquivos_keys:
         linhas = ["## Arquivos\n"]
@@ -170,21 +179,17 @@ def compilar_ledger(org_id: str, dia: date) -> int:
                 except (json.JSONDecodeError, ValueError):
                     pass
 
-            txt_conteudo = _ler_s3(f"{key}.txt")
-            if txt_conteudo:
-                preview = txt_conteudo[:500]
-            else:
-                conteudo = _ler_s3(key)
-                preview = conteudo[:500] if conteudo else "sem conteúdo extraído"
+            summary = _ler_s3(f"{key}.summary.md")
 
             arquivo_line = f"[ARQUIVO] {nome} — {link}" if link else f"[ARQUIVO] {nome}"
             tipo_line = f"[TIPO] {mime_type}\n" if mime_type else ""
+            summary_line = f"[SUMMARY] {summary}\n" if summary else ""
 
             linhas.append(
                 f"### {hora} — Google Drive\n"
                 f"{arquivo_line}\n"
                 f"{tipo_line}"
-                f"[CONTEÚDO] {preview}\n"
+                f"{summary_line}"
             )
         secoes.append("\n".join(linhas))
 

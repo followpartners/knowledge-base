@@ -7,6 +7,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from drive import listar_arquivos, get_service, download_arquivo
 from extractor import extrair_texto
+from summarizer import gerar_summary
 from ledger import salvar_arquivo, compilar_ledger
 
 logger = logging.getLogger(__name__)
@@ -27,8 +28,9 @@ def pipeline() -> int:
     salvos = 0
     for arq in arquivos:
         texto = extrair_texto(service, arq)
+        summary = gerar_summary(texto, arq.get("name", ""), arq.get("mimeType", "")) if texto else None
         binario = download_arquivo(service, arq)
-        key = salvar_arquivo(ORG_ID, arq, binario, texto)
+        key = salvar_arquivo(ORG_ID, arq, binario, texto, summary)
         if key:
             salvos += 1
 
