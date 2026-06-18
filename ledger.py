@@ -32,6 +32,10 @@ def _prefixo_dia(org_id: str, dia: date) -> str:
     return f"orgs/{org_id}/ledger/{dia.strftime('%Y/%m/%d')}"
 
 
+def _sanitizar_nome(nome: str) -> str:
+    return nome.replace("/", "-").replace("\\", "-")
+
+
 def salvar_arquivo(org_id: str, arquivo: dict, conteudo: bytes, texto: str | None = None) -> str | None:
     if not conteudo:
         return None
@@ -43,7 +47,7 @@ def salvar_arquivo(org_id: str, arquivo: dict, conteudo: bytes, texto: str | Non
     else:
         dia = date.today()
 
-    nome = arquivo.get("name", arquivo["id"])
+    nome = _sanitizar_nome(arquivo.get("name", arquivo["id"]))
     prefixo = _prefixo_dia(org_id, dia)
     key = f"{prefixo}/arquivos/{nome}"
 
