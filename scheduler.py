@@ -1,12 +1,13 @@
 import os
 import logging
+from datetime import date
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from drive import listar_arquivos, get_service
+from drive import listar_arquivos, get_service, download_arquivo
 from extractor import extrair_texto
-from ledger import gravar
+from ledger import salvar_arquivo, compilar_ledger
 
 logger = logging.getLogger(__name__)
 
@@ -21,30 +22,22 @@ def pipeline() -> int:
 
     service = get_service()
     arquivos = listar_arquivos()
-    logger.info(f"[pipeline] {len(arquivos)} arquivos encontrados no Drive")
+    logger.info(f"[pipeline] {len(arquivos)} arquivos criados hoje no Drive")
 
-    entradas = []
-    extraidos = 0
+    salvos = 0
     for arq in arquivos:
         texto = extrair_texto(service, arq)
-        if texto is not None:
-            extraidos += 1
+        binario = download_arquivo(service, arq)
+        key = salvar_arquivo(ORG_ID, arq, binario, texto)
+        if key:
+            salvos += 1
 
-        entradas.append({
-            "file_id": arq["id"],
-            "nome": arq["name"],
-            "link": arq.get("webViewLink", ""),
-            "mimeType": arq.get("mimeType", ""),
-            "modifiedTime": arq.get("modifiedTime", ""),
-            "texto": texto,
-        })
+    logger.info(f"[pipeline] {salvos}/{len(arquivos)} arquivos salvos no S3")
 
-    logger.info(f"[pipeline] {extraidos}/{len(arquivos)} extraídos com sucesso")
+    secoes = compilar_ledger(ORG_ID, date.today())
+    logger.info(f"[pipeline] ledger compilada com {secoes} seções")
 
-    novos = gravar(ORG_ID, entradas)
-    logger.info(f"[pipeline] {novos} entradas novas gravadas no S3")
-
-    return novos
+    return salvos
 
 
 def iniciar():

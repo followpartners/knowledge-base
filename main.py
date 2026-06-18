@@ -1,16 +1,20 @@
 import logging
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from scheduler import iniciar, pipeline
+from ledger import compilar_ledger
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+ORG_ID = "followpartners"
 
 
 @asynccontextmanager
