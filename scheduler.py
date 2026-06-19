@@ -1,6 +1,7 @@
 import os
 import logging
-from datetime import date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -12,6 +13,7 @@ from ledger import salvar_arquivo, compilar_ledger
 
 logger = logging.getLogger(__name__)
 
+BRT = ZoneInfo("America/Sao_Paulo")
 BRT_TZ = "America/Sao_Paulo"
 ORG_ID = os.getenv("ORG_ID", "followpartners")
 
@@ -36,7 +38,8 @@ def pipeline() -> int:
 
     logger.info(f"[pipeline] {salvos}/{len(arquivos)} arquivos salvos no S3")
 
-    secoes = compilar_ledger(ORG_ID, date.today())
+    hoje = datetime.now(BRT).date()
+    secoes = compilar_ledger(ORG_ID, hoje)
     logger.info(f"[pipeline] ledger compilada com {secoes} seções")
 
     return salvos
