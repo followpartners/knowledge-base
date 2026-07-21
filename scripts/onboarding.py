@@ -17,7 +17,7 @@ from drive import get_service, download_arquivo
 from extractor import extrair_texto
 from summarizer import gerar_summary
 from ledger import (
-    salvar_arquivo, ler_diario, compilar_ledger,
+    salvar_arquivo, ler_diario, compilar_ledger, determinar_data,
     _get_s3, BUCKET, _prefixo_dia, _sanitizar_nome, _ler_s3,
 )
 
@@ -73,14 +73,6 @@ def _s3_key_existe(key: str) -> bool:
         return False
 
 
-def _dia_do_arquivo(arq: dict) -> date:
-    created = arq.get("createdTime", "")
-    if created:
-        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-        return dt.astimezone(BRT).date()
-    return date.today()
-
-
 def main():
     parser = argparse.ArgumentParser(description="Onboarding — importa histórico do Drive para o S3")
     parser.add_argument("--org_id", required=True, help="ID da organização")
@@ -112,7 +104,7 @@ def main():
         mime = arq.get("mimeType", "")
 
         try:
-            dia = _dia_do_arquivo(arq)
+            dia, evento = determinar_data(arq)
             prefixo = _prefixo_dia(org_id, dia)
             key_meta = f"{prefixo}/arquivos/{nome}.meta.json"
             key_summary = f"{prefixo}/arquivos/{nome}.summary.md"
@@ -121,7 +113,7 @@ def main():
             summary_existe = _s3_key_existe(key_summary)
 
             if meta_existe and summary_existe:
-                logger.info(f"[onboarding] ({i}/{len(arquivos)}) pulando {raw_nome} — completo")
+                logger.info(f"[onboarding] ({i}/{len(arquivos)}) pulando {raw_nome} — completo ({evento})")
                 pulados += 1
                 continue
 

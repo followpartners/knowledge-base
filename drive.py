@@ -51,11 +51,16 @@ def listar_arquivos() -> list[dict]:
         "nextPageToken, "
         "files(id, name, mimeType, createdTime, modifiedTime, webViewLink)"
     )
+    ini = inicio_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    fim = fim_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    janela = (
+        f"(createdTime >= '{ini}' and createdTime < '{fim}')"
+        f" or (modifiedTime >= '{ini}' and modifiedTime < '{fim}')"
+    )
     query = (
         "trashed = false"
         " and mimeType != 'application/vnd.google-apps.folder'"
-        f" and createdTime >= '{inicio_utc.strftime('%Y-%m-%dT%H:%M:%SZ')}'"
-        f" and createdTime < '{fim_utc.strftime('%Y-%m-%dT%H:%M:%SZ')}'"
+        f" and ({janela})"
     )
 
     while True:
@@ -74,7 +79,7 @@ def listar_arquivos() -> list[dict]:
         if not page_token:
             break
 
-    logger.info(f"[drive] {len(arquivos)} arquivos criados hoje")
+    logger.info(f"[drive] {len(arquivos)} arquivos criados/modificados hoje")
     return arquivos
 
 

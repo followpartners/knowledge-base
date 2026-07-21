@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 import boto3
@@ -36,16 +36,38 @@ def _sanitizar_nome(nome: str) -> str:
     return nome.replace("/", "-").replace("\\", "-")
 
 
+def _parse_dia(raw: str) -> date | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(BRT).date()
+    except ValueError:
+        return None
+
+
+def determinar_data(arquivo: dict) -> tuple[date, str]:
+    """Decide sob qual data (YYYY/MM/DD) o arquivo é gravado e se é
+    evento de criação ou modificação.
+
+    - modificado hoje e criado em outro dia → (hoje, "modificado")
+    - caso contrário → (data de criação, "criado")
+    """
+    hoje = datetime.now(BRT).date()
+    created_dia = _parse_dia(arquivo.get("createdTime", ""))
+    modified_dia = _parse_dia(arquivo.get("modifiedTime", ""))
+
+    if modified_dia == hoje and created_dia != hoje:
+        return (hoje, "modificado")
+    if created_dia is not None:
+        return (created_dia, "criado")
+    return (hoje, "criado")
+
+
 def salvar_arquivo(org_id: str, arquivo: dict, conteudo: bytes, texto: str | None = None, summary: str | None = None) -> str | None:
     if not conteudo:
         return None
 
-    created = arquivo.get("createdTime", "")
-    if created:
-        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-        dia = dt.astimezone(BRT).date()
-    else:
-        dia = date.today()
+    dia, evento = determinar_data(arquivo)
 
     nome = _sanitizar_nome(arquivo.get("name", arquivo["id"]))
     prefixo = _prefixo_dia(org_id, dia)
@@ -61,6 +83,8 @@ def salvar_arquivo(org_id: str, arquivo: dict, conteudo: bytes, texto: str | Non
             "mime_type": arquivo.get("mimeType"),
             "created_at": arquivo.get("createdTime"),
             "modified_at": arquivo.get("modifiedTime"),
+            "captured_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "evento": evento,
             "link": arquivo.get("webViewLink", ""),
         }
         key_meta = f"{prefixo}/arquivos/{nome}.meta.json"
@@ -166,22 +190,25 @@ def compilar_ledger(org_id: str, dia: date) -> int:
             hora = "—"
             link = ""
             mime_type = ""
+            evento = "criado"
             meta_raw = _ler_s3(f"{key}.meta.json")
             if meta_raw:
                 try:
                     meta = json.loads(meta_raw)
                     link = meta.get("link", "")
                     mime_type = meta.get("mime_type", "")
-                    created = meta.get("created_at", "")
-                    if created:
-                        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    evento = meta.get("evento", "criado")
+                    ts = meta.get("modified_at", "") if evento == "modificado" else meta.get("created_at", "")
+                    if ts:
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                         hora = dt.astimezone(BRT).strftime("%H:%M")
                 except (json.JSONDecodeError, ValueError):
                     pass
 
             summary = _ler_s3(f"{key}.summary.md")
 
-            arquivo_line = f"[ARQUIVO] {nome} — {link}" if link else f"[ARQUIVO] {nome}"
+            rotulo = "ARQUIVO MODIFICADO" if evento == "modificado" else "ARQUIVO"
+            arquivo_line = f"[{rotulo}] {nome} — {link}" if link else f"[{rotulo}] {nome}"
             tipo_line = f"[TIPO] {mime_type}\n" if mime_type else ""
             summary_line = f"[SUMMARY] {summary}\n" if summary else ""
 
