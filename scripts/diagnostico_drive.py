@@ -32,6 +32,7 @@ print(f"Janela UTC: {inicio_str} ate {fim_str}")
 print()
 
 # Teste 1: sem filtro, ordena por modifiedTime desc
+# (mantido SEM os flags de Shared Drive — baseline "só My Drive")
 service = get_service()
 print("TESTE 1 - 10 arquivos mais recentemente modificados:")
 resp = service.files().list(
@@ -51,6 +52,8 @@ resp = service.files().list(
     q=q2,
     fields="files(id,name,modifiedTime)",
     pageSize=20,
+    supportsAllDrives=True,
+    includeItemsFromAllDrives=True,
 ).execute()
 files = resp.get("files", [])
 print(f"Retornou {len(files)} arquivos:")
@@ -67,6 +70,8 @@ resp = service.files().list(
     q=q3,
     fields="files(id,name,createdTime,modifiedTime)",
     pageSize=20,
+    supportsAllDrives=True,
+    includeItemsFromAllDrives=True,
 ).execute()
 files = resp.get("files", [])
 print(f"Retornou {len(files)} arquivos:")

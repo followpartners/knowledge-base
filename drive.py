@@ -71,6 +71,8 @@ def listar_arquivos() -> list[dict]:
                 fields=fields,
                 pageToken=page_token,
                 q=query,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             )
             .execute()
         )
@@ -101,7 +103,7 @@ def download_arquivo(service, arquivo: dict) -> bytes | None:
             data = service.files().export(fileId=file_id, mimeType=export_mime).execute()
             return data if isinstance(data, bytes) else data.encode("utf-8")
 
-        request = service.files().get_media(fileId=file_id)
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
         buffer = io.BytesIO()
         downloader = MediaIoBaseDownload(buffer, request)
         done = False
