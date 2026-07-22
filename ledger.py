@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+from collections import defaultdict
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -174,7 +175,17 @@ def _extrair_entradas_diario(diario_md: str) -> list[str]:
     return entradas
 
 
-def compilar_ledger(org_id: str, dia: date) -> int:
+MESES_PT = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+]
+
+
+def _nome_org(org_id: str) -> str:
+    return "Follow Partners" if org_id == "followpartners" else org_id
+
+
+def compilar_ledger(org_id: str, dia: date, incluir_diario: bool = True) -> int:
     prefixo = _prefixo_dia(org_id, dia)
     secoes = []
 
@@ -233,17 +244,18 @@ def compilar_ledger(org_id: str, dia: date) -> int:
             )
         secoes.append("\n".join(linhas))
 
-    diario = ler_diario(dia)
-    if diario:
-        entradas = _extrair_entradas_diario(diario)
-        if entradas:
-            secoes.append("## Diário\n\n" + "\n".join(entradas) + "\n")
+    if incluir_diario:
+        diario = ler_diario(dia)
+        if diario:
+            entradas = _extrair_entradas_diario(diario)
+            if entradas:
+                secoes.append("## Diário\n\n" + "\n".join(entradas) + "\n")
 
     if not secoes:
         logger.info(f"[ledger] nenhum conteúdo para {dia}")
         return 0
 
-    titulo = f"# Follow Partners · {dia.strftime('%d/%m/%Y')}\n\n"
+    titulo = f"# {_nome_org(org_id)} · {dia.strftime('%d/%m/%Y')}\n\n"
     md = titulo + "\n".join(secoes)
 
     key_ledger = f"{prefixo}/ledger_{dia.strftime('%Y-%m-%d')}.md"
@@ -256,3 +268,77 @@ def compilar_ledger(org_id: str, dia: date) -> int:
 
     logger.info(f"[ledger] compilado {key_ledger} com {len(secoes)} seções")
     return len(secoes)
+
+
+def compilar_ledger_mensal(org_id: str, ano: int, mes: int) -> int:
+    """Compila a ledger mensal de uma org em orgs/{org_id}/monthly/YYYY-MM.md.
+
+    Concatenação determinística (sem LLM) dos summaries dos arquivos do
+    mês, agrupados por dia em ordem cronológica. Regenerada do zero a
+    cada chamada — lê direto os artefatos (.meta.json/.summary.md) de
+    cada arquivo sob orgs/{org_id}/ledger/YYYY/MM/, sem parsear as
+    ledgers diárias.
+
+    Retorna o número de dias com atividade no mês (0 se não gravou)."""
+    base = f"orgs/{org_id}/ledger/"
+    prefixo_mes = f"{base}{ano:04d}/{mes:02d}/"
+
+    arquivos_keys = [
+        k for k in _listar_keys(prefixo_mes)
+        if "/arquivos/" in k and not k.endswith((".meta.json", ".txt", ".summary.md"))
+    ]
+
+    por_dia = defaultdict(list)
+    for k in arquivos_keys:
+        partes = k[len(base):].split("/")
+        # esperado: [YYYY, MM, DD, "arquivos", nome]
+        if len(partes) >= 5 and partes[3] == "arquivos":
+            try:
+                dia = date(int(partes[0]), int(partes[1]), int(partes[2]))
+            except ValueError:
+                continue
+            por_dia[dia].append(k)
+
+    if not por_dia:
+        logger.info(f"[ledger] nenhum arquivo em {prefixo_mes} — mensal não gerada")
+        return 0
+
+    blocos = []
+    for dia in sorted(por_dia):
+        linhas = [f"## {dia.strftime('%d/%m/%Y')}\n"]
+        for k in sorted(por_dia[dia]):
+            nome = k.rsplit("/", 1)[-1]
+
+            link = ""
+            evento = "criado"
+            meta_raw = _ler_s3(f"{k}.meta.json")
+            if meta_raw:
+                try:
+                    meta = json.loads(meta_raw)
+                    link = meta.get("link", "")
+                    evento = meta.get("evento", "criado")
+                except json.JSONDecodeError:
+                    pass
+
+            summary = _ler_s3(f"{k}.summary.md")
+
+            rotulo = "ARQUIVO MODIFICADO" if evento == "modificado" else "ARQUIVO"
+            bloco = f"[{rotulo}] {nome} — {link}" if link else f"[{rotulo}] {nome}"
+            if summary:
+                bloco += f"\n[SUMMARY] {summary}"
+            linhas.append(bloco + "\n")
+        blocos.append("\n".join(linhas))
+
+    titulo = f"# {_nome_org(org_id)} · {MESES_PT[mes - 1]} {ano}\n\n"
+    md = titulo + "\n".join(blocos)
+
+    key_mensal = f"orgs/{org_id}/monthly/{ano:04d}-{mes:02d}.md"
+    _get_s3().put_object(
+        Bucket=BUCKET,
+        Key=key_mensal,
+        Body=md.encode("utf-8"),
+        ContentType="text/markdown; charset=utf-8",
+    )
+
+    logger.info(f"[ledger] mensal compilada {key_mensal} — {len(por_dia)} dias com atividade")
+    return len(por_dia)

@@ -49,7 +49,7 @@ def listar_arquivos() -> list[dict]:
     page_token = None
     fields = (
         "nextPageToken, "
-        "files(id, name, mimeType, createdTime, modifiedTime, webViewLink)"
+        "files(id, name, mimeType, createdTime, modifiedTime, webViewLink, parents)"
     )
     ini = inicio_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
     fim = fim_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
